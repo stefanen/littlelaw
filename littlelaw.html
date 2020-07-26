@@ -13,23 +13,27 @@
 
 <script>
     //This demo is not meant to be a reliable simulation (we use javascripts unreliable timers) ... just a proof of concept
-    //TODO make it restartable with new params
-    //TODO make many servicing lanes
-
+    //TODO split into 2 systems, serving area waiting area. show current+average+history for each
+    //TODO show % of simulation time with empty queuess
 
     const CANVAS_WIDTH = 800;
     const CANVAS_HEIGHT = 600;
     const CANVAS_PADDING = 10;
+
+
+		const SERVICE_START_X=400;
+
 
     const BALL_SIZE = 10;
     const BALL_MOVEMENT_PIXEL_COUNT_PER_UPDATE = 5;
     const BALL_UPDATE_FREQUENCY_MS = 20;
     const BALL_SPEED_PIXEL_PER_SECOND = BALL_UPDATE_FREQUENCY_MS * BALL_MOVEMENT_PIXEL_COUNT_PER_UPDATE;
     const BALL_INITIAL_Y_COORD = CANVAS_HEIGHT - 50;
-    const BALL_FINAL_X_COORD = CANVAS_WIDTH - 50;
+    const BALL_FINAL_X_COORD = SERVICE_START_X+10;
 
     const AVERAGE_SERVICE_TIME_W = 2;
-    const ARRIVAL_RATE_INTENSITY_LAMBDA = 1;
+    const ARRIVAL_RATE_INTENSITY_LAMBDA = 3;
+		const SERVICE_LANE_COUNT_K=7;
 
     const canvas = document.getElementById("gameCanvas");
     const context = canvas.getContext("2d");
@@ -39,10 +43,10 @@
         //TODO make prettier
         canvas.setAttribute("height", CANVAS_HEIGHT)
         canvas.setAttribute("width", CANVAS_WIDTH)
+        context.moveTo(0.5 + SERVICE_START_X, CANVAS_PADDING);
+        context.lineTo(0.5 + SERVICE_START_X, CANVAS_HEIGHT + CANVAS_PADDING-40);
         context.moveTo(0.5 + CANVAS_WIDTH - 40 + CANVAS_PADDING, CANVAS_PADDING);
         context.lineTo(0.5 + CANVAS_WIDTH - 40 + CANVAS_PADDING, CANVAS_HEIGHT + CANVAS_PADDING-40);
-        context.moveTo(0.5 + CANVAS_WIDTH - 80 + CANVAS_PADDING, CANVAS_PADDING);
-        context.lineTo(0.5 + CANVAS_WIDTH - 80 + CANVAS_PADDING, CANVAS_HEIGHT + CANVAS_PADDING-40);
         context.moveTo(CANVAS_PADDING, 0.5 + CANVAS_HEIGHT - 40 + CANVAS_PADDING);
         context.lineTo(CANVAS_WIDTH + CANVAS_PADDING-40, 0.5 + CANVAS_HEIGHT - 40 + CANVAS_PADDING);
         context.moveTo(CANVAS_PADDING, 0.5 + CANVAS_HEIGHT - 80 + CANVAS_PADDING);
@@ -58,10 +62,11 @@
         //context.lineTo(BALL_FINAL_X_COORD+30, BALL_INITIAL_Y_COORD-100);
 
 
-
+	/*
         context.font = "30px Verdana";
         context.fillStyle = "black";
-        context.fillText("LITTLE's LAW SIMULATION", CANVAS_WIDTH / 2 - 350, CANVAS_HEIGHT / 2 - 200)
+        context.fillText("LITTLE's LAW SIMULATION", CANVAS_WIDTH / 2 - 450, CANVAS_HEIGHT / 2 - 200)
+
         context.font = "15px Verdana";
         context.fillText("Little's law says that the (long time) average number of balls in the yellow lane is L=λ*W", CANVAS_WIDTH / 2 - 350, CANVAS_HEIGHT / 2 - 170)
         context.fillText("The queue-model used here is M/M/∞:", CANVAS_WIDTH / 2 - 350, CANVAS_HEIGHT / 2 - 140)
@@ -74,19 +79,32 @@
         context.rotate(-Math.PI/2);
         context.fillText("SERVICING PROCESS (yellow)", -490, 720)
         context.rotate(Math.PI/2);
-
+*/
 
         context.strokeStyle = "black";
         context.stroke();
+
     }
 
     function updateCanvas() {
         context.fillStyle = "lightgreen";
         context.fillRect(0, canvas.height-68, canvas.width - 45, 38);
+
         context.fillStyle = "yellow";
-        context.fillRect(canvas.width - 68, 0, 38, canvas.height-30);
+        context.fillRect(SERVICE_START_X+1, 0, 369, canvas.height-30);
 
+        context.fillStyle = "orange";
+        context.fillRect(SERVICE_START_X-40, canvas.height-68, 50, 38);
 
+        /*
+        for (var i=1;i<SERVICE_LANE_COUNT_K+1; i++) {
+        	context.moveTo(0.5 + SERVICE_START_X+i*50, CANVAS_PADDING);
+        	context.lineTo(0.5 + SERVICE_START_X+i*50, CANVAS_HEIGHT + CANVAS_PADDING-40);
+
+        }
+				context.strokeStyle = "black";
+       	context.stroke();
+        */
     }
 
     function createKeyValueTr(key, value, bold=false) {
@@ -157,7 +175,10 @@
             balls.push(
                 {
                     position: 0,
-                    exitPosition: getExpRandomExitPosition()
+                    exitPosition: getExpRandomExitPosition(),
+                    serviceLane: -1,
+                    waitQueueEnterTimeMs: 0,
+                    waitQueueExitTimeMs: 0
                 }
             )
         }
@@ -175,6 +196,10 @@
             var totalDurationMs=(new Date().getTime()-startEpochMs);
             var simuationDurationMs=totalDurationMs-1000*BALL_FINAL_X_COORD/BALL_SPEED_PIXEL_PER_SECOND;
             var actualAvgArrivalRate=totalBallCountHavingEnteredService/(simuationDurationMs/1000)
+
+						var avgQueueWaitTimeMs=Math.round(queueWaitTimeStats.reduce((a, b) => a + b, 0) / queueWaitTimeStats.length * 100) / 100
+
+
 
             document.getElementById("ACTUAL_AVERAGE_SERVICE_TIME").innerHTML=Math.round(actualAvgServiceTime* 100) / 100;
             document.getElementById("TOTAL_BALL_COUNT_BEEN_SERVICED_OR_IN_SERVICE").innerHTML=Math.round(totalBallCountHavingEnteredService* 100) / 100;
@@ -194,9 +219,14 @@ vs W_actual=${document.getElementById("ACTUAL_AVERAGE_SERVICE_TIME").innerHTML}
 <br>
 vs λ_actual=${document.getElementById("ACTUAL_AVERAGE_ARRIVAL_RATE").innerHTML}
 <br>
-
+avg_queue_wait_time_ms=${avgQueueWaitTimeMs}
 `
+
                 +"</div>";
+
+                var currentQueueSize=Math.max(currentBallCountInService-6,0);
+
+                console.log("current queue size is "+currentQueueSize)
         }
 
 
@@ -207,31 +237,68 @@ vs λ_actual=${document.getElementById("ACTUAL_AVERAGE_ARRIVAL_RATE").innerHTML}
         updateCanvas();
 
         var ballCountInService = 0;
+				var ballCountWaiting = 0;
 
         // move the balls
         balls.forEach(ball => {
             var bx, by;
-            ball.position += BALL_MOVEMENT_PIXEL_COUNT_PER_UPDATE;
             if (ball.position < BALL_FINAL_X_COORD) {
                 bx = ball.position
-                by = BALL_INITIAL_Y_COORD;
+ 	              by = BALL_INITIAL_Y_COORD;
+		            ball.position += BALL_MOVEMENT_PIXEL_COUNT_PER_UPDATE;
+
+
             } else {
                 ballCountInService++;
-                bx = BALL_FINAL_X_COORD;
+                if (ball.serviceLane==-1) {
+                		var firstFreeLane=[ ...Array(SERVICE_LANE_COUNT_K).keys() ].find(p=> ("undefined" == typeof usedServiceLanes.find(i=>i==p)));
+
+										if (ball.waitQueueEnterTimeMs==0) {
+  											ball.waitQueueEnterTimeMs=(new Date()).getTime();
+                    }
+                    if (typeof firstFreeLane == "undefined") {
+                    		ballCountWaiting++;
+                    		return;
+                    }
+
+  									ball.waitQueueExitTimeMs=(new Date()).getTime();
+
+                    console.log("waitTimeMs:"+(ball.waitQueueExitTimeMs-ball.waitQueueEnterTimeMs));
+                    queueWaitTimeStats.push((ball.waitQueueExitTimeMs-ball.waitQueueEnterTimeMs));
+
+
+                    ball.serviceLane=firstFreeLane;
+                		usedServiceLanes.push(ball.serviceLane);
+                }
+		            ball.position += BALL_MOVEMENT_PIXEL_COUNT_PER_UPDATE;
+
+
+                const SERVICE_LANE_OFFSET_X=ball.serviceLane*50;
+
+                bx = BALL_FINAL_X_COORD+SERVICE_LANE_OFFSET_X;
                 by = BALL_INITIAL_Y_COORD + BALL_FINAL_X_COORD - ball.position;
             }
 
 
             if (ball.position <= ball.exitPosition) {
-                context.fillStyle = "blue";
+                context.fillStyle =  "blue";
                 context.fillRect(bx - BALL_SIZE / 2, by - BALL_SIZE / 2, BALL_SIZE, BALL_SIZE);
             } else {
                 context.fillStyle = "gray";
                 context.fillRect(bx + BALL_SIZE - BALL_SIZE / 2, by - BALL_SIZE / 2, BALL_SIZE, BALL_SIZE);
                 //console.log(ball.position-BALL_FINAL_X_COORD)
                 serviceTimesMsStats.push((ball.position-BALL_FINAL_X_COORD)/BALL_SPEED_PIXEL_PER_SECOND)
+                usedServiceLanes=usedServiceLanes.filter(p=>p!=ball.serviceLane);
             }
         });
+
+				//draw waiting queue
+        if (ballCountWaiting>0) {
+						context.fillStyle =  "blue";
+            context.fillRect(BALL_FINAL_X_COORD - BALL_SIZE / 2 - BALL_SIZE*ballCountWaiting, BALL_INITIAL_Y_COORD - BALL_SIZE / 2, BALL_SIZE+BALL_SIZE*ballCountWaiting, BALL_SIZE);
+
+        }
+
 
         //remove finished balls
         balls = balls.filter(function (ball) {
@@ -248,13 +315,18 @@ vs λ_actual=${document.getElementById("ACTUAL_AVERAGE_ARRIVAL_RATE").innerHTML}
 
     var balls = [];
     var ballCountInServiceStats = [];
+    var queueWaitTimeStats = [];
     var serviceTimesMsStats = [];
     var doCalculateAverageBallCountStats = false;
     var lastBallCreationEpochMs = startEpochMs;
     var nextBallCreationEpochMs = lastBallCreationEpochMs + 1000 * randomExponential(ARRIVAL_RATE_INTENSITY_LAMBDA)
 
+		var usedServiceLanes=[];
+
+
     initCanvas();
     tableCreate();
+
     setInterval(animateBallMovements, 1000 / BALL_UPDATE_FREQUENCY_MS);
     setInterval(generateNewBall, 1000 / BALL_UPDATE_FREQUENCY_MS);
 
@@ -265,8 +337,8 @@ vs λ_actual=${document.getElementById("ACTUAL_AVERAGE_ARRIVAL_RATE").innerHTML}
     setInterval(function () { updateDisplayStats() }, 5000);
 
 
-
 </script>
 </body>
 
 </html>
+
