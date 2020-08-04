@@ -10,6 +10,7 @@
 <body>
 <canvas id="gameCanvas"></canvas>
 
+
 <div style="background-color: lightgreen">
     <label><b>Customer arrival process</b></label>
     <p id="ARRIVAL_AREA_DATA"></p>
@@ -100,7 +101,7 @@
             [...Array(10).keys()].forEach(i => {
                 context.fillText(i + "s", CANVAS_WIDTH - 14, 0.5 + CANVAS_HEIGHT - 50 - 100 * i)
             });
-            context.fillText("W=", CANVAS_WIDTH - 29, 0.5 + CANVAS_HEIGHT - 50 - BALL_SPEED_PIXEL_PER_SECOND * self.AVERAGE_SERVICE_TIME_W);
+            //context.fillText("W=", CANVAS_WIDTH - 29, 0.5 + CANVAS_HEIGHT - 50 - BALL_SPEED_PIXEL_PER_SECOND * self.AVERAGE_SERVICE_TIME_W);
             //context.moveTo(BALL_FINAL_X_COORD, BALL_INITIAL_Y_COORD-100);
             //context.lineTo(BALL_FINAL_X_COORD+30, BALL_INITIAL_Y_COORD-100);
 
@@ -186,6 +187,8 @@
         }
 
         function updateDisplayStats() {
+            context.fillStyle = "white";
+            context.fillRect(100, 80, 270, 100);
             if (self.doCalculateAverageBallCountStats) {
                 var avgQueueWaitTimeMs = Math.round(self.queueWaitTimeStats.reduce((a, b) => a + b, 0) / self.queueWaitTimeStats.length * 100) / 100
                 var actualAvgServiceTime=Math.round(self.serviceTimesMsStats.reduce((a, b) => a + b, 0) / self.serviceTimesMsStats.length * 100) / 100;
@@ -204,6 +207,16 @@
                     MaxCount=${Math.max.apply(null, simulation.serviceAreaCountStats)},
                     MaxCapacity=${self.SERVICE_LANE_COUNT_K},
                     AverageServiceTime=${actualAvgServiceTime}`
+
+
+                context.fillStyle = "blue";
+                context.fillText(`average server occupancy = ${Math.round((simulation.serviceAreaCountStats.reduce((a, b) => a + b, 0) / (simulation.serviceAreaCountStats.length*self.SERVICE_LANE_COUNT_K)) * 100)} %`, 100, 100);
+                context.fillText(`average queue wait time = ${Math.round(100*avgQueueWaitTimeMs/1000)/100} seconds`, 100, 130);
+
+                context.fillText(`M/M/${self.SERVICE_LANE_COUNT_K} queue with λ=${self.ARRIVAL_RATE_INTENSITY_LAMBDA} customer/s and W=${self.AVERAGE_SERVICE_TIME_W} s`, 100, 160);
+
+
+                context.stroke();
             }
 
         }
