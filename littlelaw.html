@@ -34,11 +34,13 @@
                                                                                                        id="AVERAGE_SERVICE_TIME_W"
                                                                                                        value="2"></p>
 <p><label style="width: 300px; display:inline-block">Arrival rate intensity (customers/second) (λ) </label><input
-        type="text" id="ARRIVAL_RATE_INTENSITY_LAMBDA" value="3"></p>
+        type="text" id="ARRIVAL_RATE_INTENSITY_LAMBDA" value="2"></p>
 <p><label style="width: 300px; display:inline-block">Service worker count (k)</label><input type="text"
                                                                                             id="SERVICE_LANE_COUNT_K"
                                                                                             value="7"></p>
 <button onclick="simulation.startSimulation()">Restart simulation</button>
+<button onclick="simulation.resetStats()">Reset stats</button>
+<button onclick="simulation.updateSimulationParams()">Update parameters</button>
 
 <hr></hr>
 
@@ -59,13 +61,10 @@
 <br>
 <script>
     //This demo is not meant to be a reliable simulation (we use javascripts unreliable timers) ... just a proof of concept
+    //TODO scrollbars
+    //TODO clearStats
 
     var simulation = new function () {
-        const self = this;
-
-        self.intervals = [];
-        self.timeouts = [];
-
         const CANVAS_WIDTH = 800;
         const CANVAS_HEIGHT = 600;
         const CANVAS_PADDING = 10;
@@ -81,8 +80,26 @@
 
         const canvas = document.getElementById("gameCanvas");
         const context = canvas.getContext("2d");
-        const startEpochMs = new Date().getTime();
 
+        const self = this;
+
+        //simulation state:
+        self.intervals = [];
+        self.timeouts = [];
+        self.balls = [];
+        self.nextBallCreationEpochMs = null;
+        self.arrivalAreaCountStats = [];
+        self.queueAreaCountStats = [];
+        self.serviceAreaCountStats = [];
+        self.queueWaitTimeStats = [];
+        self.serviceTimesMsStats = [];
+        self.doCalculateAverageBallCountStats = false;
+        self.nextBallCreationEpochMs = null;
+        self.usedServiceLanes = [];
+        self.AVERAGE_SERVICE_TIME_W = null;
+        self.ARRIVAL_RATE_INTENSITY_LAMBDA = null;
+        self.SERVICE_LANE_COUNT_K = null;
+        
         function initCanvas() {
             //TODO make prettier
             canvas.setAttribute("height", CANVAS_HEIGHT)
@@ -101,29 +118,6 @@
             [...Array(10).keys()].forEach(i => {
                 context.fillText(i + "s", CANVAS_WIDTH - 14, 0.5 + CANVAS_HEIGHT - 50 - 100 * i)
             });
-            //context.fillText("W=", CANVAS_WIDTH - 29, 0.5 + CANVAS_HEIGHT - 50 - BALL_SPEED_PIXEL_PER_SECOND * self.AVERAGE_SERVICE_TIME_W);
-            //context.moveTo(BALL_FINAL_X_COORD, BALL_INITIAL_Y_COORD-100);
-            //context.lineTo(BALL_FINAL_X_COORD+30, BALL_INITIAL_Y_COORD-100);
-
-
-            /*
-            context.font = "30px Verdana";
-            context.fillStyle = "black";
-            context.fillText("LITTLE's LAW SIMULATION", CANVAS_WIDTH / 2 - 450, CANVAS_HEIGHT / 2 - 200)
-
-            context.font = "15px Verdana";
-            context.fillText("Little's law says that the (long time) average number of self.balls in the yellow lane is L=λ*W", CANVAS_WIDTH / 2 - 350, CANVAS_HEIGHT / 2 - 170)
-            context.fillText("The queue-model used here is M/M/∞:", CANVAS_WIDTH / 2 - 350, CANVAS_HEIGHT / 2 - 140)
-            context.fillText("Poisson-λ arrival process ", CANVAS_WIDTH / 2 - 350, CANVAS_HEIGHT / 2 - 110)
-            context.fillText("Exp(1/W)-distributed (independent) service times", CANVAS_WIDTH / 2 - 350, CANVAS_HEIGHT / 2 - 80)
-            context.fillText("Infinite amount of servers (betjäningsstationer), so no waiting queue", CANVAS_WIDTH / 2 - 350, CANVAS_HEIGHT / 2 - 50)
-
-            context.fillText("ARRIVAL PROCESS (green)", CANVAS_WIDTH / 2 - 250, CANVAS_HEIGHT - 80)
-
-            context.rotate(-Math.PI/2);
-            context.fillText("SERVICING PROCESS (yellow)", -490, 720)
-            context.rotate(Math.PI/2);
-    */
 
             context.strokeStyle = "black";
             context.stroke();
@@ -169,16 +163,16 @@
 
         }
 
-        function generateNewBall() {
+        function generateNewBalls() {
             const currentEpochMs = new Date().getTime();
-            if (currentEpochMs > self.nextBallCreationEpochMs) {
-                self.lastBallCreationEpochMs = currentEpochMs;
-                self.nextBallCreationEpochMs = self.lastBallCreationEpochMs + 1000 * randomExponential(self.ARRIVAL_RATE_INTENSITY_LAMBDA)
+            while (currentEpochMs > self.nextBallCreationEpochMs) {
+                self.nextBallCreationEpochMs = self.nextBallCreationEpochMs + 1000 * randomExponential(self.ARRIVAL_RATE_INTENSITY_LAMBDA)
                 self.balls.push(
                     {
                         position: 0,
                         exitPosition: getExpRandomExitPosition(),
                         serviceLane: -1,
+                        creationEpochMs: currentEpochMs,
                         waitQueueEnterTimeMs: 0,
                         waitQueueExitTimeMs: 0
                     }
@@ -208,13 +202,11 @@
                     MaxCapacity=${self.SERVICE_LANE_COUNT_K},
                     AverageServiceTime=${actualAvgServiceTime}`
 
-
                 context.fillStyle = "blue";
                 context.fillText(`average server occupancy = ${Math.round((simulation.serviceAreaCountStats.reduce((a, b) => a + b, 0) / (simulation.serviceAreaCountStats.length*self.SERVICE_LANE_COUNT_K)) * 100)} %`, 100, 100);
                 context.fillText(`average queue wait time = ${Math.round(100*avgQueueWaitTimeMs/1000)/100} seconds`, 100, 130);
 
                 context.fillText(`M/M/${self.SERVICE_LANE_COUNT_K} queue with λ=${self.ARRIVAL_RATE_INTENSITY_LAMBDA} customer/s and W=${self.AVERAGE_SERVICE_TIME_W} s`, 100, 160);
-
 
                 context.stroke();
             }
@@ -222,6 +214,7 @@
         }
 
         function animateBallMovements() {
+            var currentAnimateEpochMs = (new Date()).getTime();
             updateCanvas();
 
             var ballCountInService = 0;
@@ -230,43 +223,38 @@
             // move the self.balls
             self.balls.forEach(ball => {
                 var bx, by;
+                var totalMovementTimeMs=0;
                 if (ball.position < BALL_FINAL_X_COORD) {
                     bx = ball.position
                     by = BALL_INITIAL_Y_COORD;
-                    ball.position += BALL_MOVEMENT_PIXEL_COUNT_PER_UPDATE;
-
-
+                    totalMovementTimeMs=currentAnimateEpochMs-ball.creationEpochMs;
                 } else {
                     ballCountInService++;
                     if (ball.serviceLane == -1) {
                         var firstFreeLane = [...Array(self.SERVICE_LANE_COUNT_K).keys()].find(p => ("undefined" == typeof self.usedServiceLanes.find(i => i == p)));
 
                         if (ball.waitQueueEnterTimeMs == 0) {
-                            ball.waitQueueEnterTimeMs = (new Date()).getTime();
+                            ball.waitQueueEnterTimeMs = currentAnimateEpochMs;
                         }
                         if (typeof firstFreeLane == "undefined") {
                             ballCountWaiting++;
                             return;
                         }
 
-                        ball.waitQueueExitTimeMs = (new Date()).getTime();
-
-                        //console.log("waitTimeMs:" + (ball.waitQueueExitTimeMs - ball.waitQueueEnterTimeMs));
+                        ball.waitQueueExitTimeMs = currentAnimateEpochMs;
                         self.queueWaitTimeStats.push((ball.waitQueueExitTimeMs - ball.waitQueueEnterTimeMs));
-
 
                         ball.serviceLane = firstFreeLane;
                         self.usedServiceLanes.push(ball.serviceLane);
                     }
-                    ball.position += BALL_MOVEMENT_PIXEL_COUNT_PER_UPDATE;
-
+                    totalMovementTimeMs=currentAnimateEpochMs-ball.creationEpochMs-ball.waitQueueExitTimeMs+ball.waitQueueEnterTimeMs;
 
                     const SERVICE_LANE_OFFSET_X = ball.serviceLane * 50;
-
                     bx = BALL_FINAL_X_COORD + SERVICE_LANE_OFFSET_X;
                     by = BALL_INITIAL_Y_COORD + BALL_FINAL_X_COORD - ball.position;
                 }
 
+                ball.position=(totalMovementTimeMs*BALL_UPDATE_FREQUENCY_MS/1000)*BALL_MOVEMENT_PIXEL_COUNT_PER_UPDATE
 
                 if (ball.position <= ball.exitPosition) {
                     context.fillStyle = "blue";
@@ -275,7 +263,6 @@
                     ballCountInService--;
                     context.fillStyle = "gray";
                     context.fillRect(bx + BALL_SIZE - BALL_SIZE / 2, by - BALL_SIZE / 2, BALL_SIZE, BALL_SIZE);
-                    //console.log(ball.position-BALL_FINAL_X_COORD)
                     self.serviceTimesMsStats.push((ball.position - BALL_FINAL_X_COORD) / BALL_SPEED_PIXEL_PER_SECOND)
                     self.usedServiceLanes = self.usedServiceLanes.filter(p => p != ball.serviceLane);
                 }
@@ -311,33 +298,35 @@
         }
 
         //setup simulation:
-
         this.init = function () {
             initCanvas();
-            //tableCreate();
+            //();
         }
+
+        this.resetStats = function () {
+            self.arrivalAreaCountStats = [];
+            self.queueAreaCountStats = [];
+            self.serviceAreaCountStats = [];
+            self.queueWaitTimeStats = [];
+            self.serviceTimesMsStats = [];
+        }
+
+        this.updateSimulationParams = function () {
+            self.AVERAGE_SERVICE_TIME_W = parseInt(document.getElementById("AVERAGE_SERVICE_TIME_W").value)
+            self.ARRIVAL_RATE_INTENSITY_LAMBDA = parseInt(document.getElementById("ARRIVAL_RATE_INTENSITY_LAMBDA").value);
+            self.SERVICE_LANE_COUNT_K = parseInt(document.getElementById("SERVICE_LANE_COUNT_K").value);
+        }
+
 
         this.startSimulation = function () {
             self.balls = [];
 
-            self.arrivalAreaCountStats = [];
-            self.queueAreaCountStats = [];
-            self.serviceAreaCountStats = [];
-
-            self.queueWaitTimeStats = [];
-            self.serviceTimesMsStats = [];
+            self.resetStats();
             self.doCalculateAverageBallCountStats = false;
-            self.lastBallCreationEpochMs = startEpochMs;
-            self.nextBallCreationEpochMs = self.lastBallCreationEpochMs + 1000 * randomExponential(self.ARRIVAL_RATE_INTENSITY_LAMBDA)
-            self.usedServiceLanes = [];
-            self.AVERAGE_SERVICE_TIME_W = parseInt(document.getElementById("AVERAGE_SERVICE_TIME_W").value)
-            self.ARRIVAL_RATE_INTENSITY_LAMBDA = parseInt(document.getElementById("ARRIVAL_RATE_INTENSITY_LAMBDA").value);
-            self.SERVICE_LANE_COUNT_K = parseInt(document.getElementById("SERVICE_LANE_COUNT_K").value);
 
-            document.getElementById("AVERAGE_SERVICE_TIME_W").innerHTML = self.AVERAGE_SERVICE_TIME_W;
-            document.getElementById("ARRIVAL_RATE_INTENSITY_LAMBDA").innerHTML = self.ARRIVAL_RATE_INTENSITY_LAMBDA;
-            document.getElementById("SERVICE_LANE_COUNT_K").innerHTML = self.SERVICE_LANE_COUNT_K;
-            //document.getElementById("LITTLE_LAW_PREDICTED_AVERAGE_BALL_COUNT_IN_SERVICE").innerHTML = self.AVERAGE_SERVICE_TIME_W * self.ARRIVAL_RATE_INTENSITY_LAMBDA;
+            self.usedServiceLanes = [];
+            self.updateSimulationParams();
+            self.nextBallCreationEpochMs = new Date().getTime() + 1000 * randomExponential(self.ARRIVAL_RATE_INTENSITY_LAMBDA)
 
             document.getElementById("ARRIVAL_AREA_STATS").innerHTML = "";
             document.getElementById("QUEUE_AREA_STATS").innerHTML = "";
@@ -349,13 +338,18 @@
             updateDisplayStats()
             self.intervals = [
                 setInterval(animateBallMovements, 1000 / BALL_UPDATE_FREQUENCY_MS),
-                setInterval(generateNewBall, 1000 / BALL_UPDATE_FREQUENCY_MS),
+                setInterval(generateNewBalls, 1000 / BALL_UPDATE_FREQUENCY_MS),
                 setInterval(function () {
                     updateDisplayStats()
                 }, 5000)
             ];
             self.timeouts = [
                 setTimeout(function () {
+                    self.arrivalAreaCountStats = [];
+                    self.queueAreaCountStats = [];
+                    self.serviceAreaCountStats = [];
+                    self.queueWaitTimeStats = [];
+                    self.serviceTimesMsStats = [];
                     self.doCalculateAverageBallCountStats = true;
                 }, 10000)
             ]
