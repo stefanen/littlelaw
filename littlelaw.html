@@ -3,13 +3,12 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Little's Law simulation</title>
+    <title>M_M_k simulation</title>
     <style></style>
 </head>
 
 <body>
 <canvas id="gameCanvas"></canvas>
-
 
 <div style="background-color: lightgreen">
     <label><b>Customer arrival process</b></label>
@@ -30,20 +29,23 @@
 </div>
 
 <p><label><b>Simulation parameters</b></label></p>
-<p><label style="width: 300px; display:inline-block">Average service time (seconds) (W) </label><input type="text"
-                                                                                                       id="AVERAGE_SERVICE_TIME_W"
-                                                                                                       value="2"></p>
-<p><label style="width: 300px; display:inline-block">Arrival rate intensity (customers/second) (λ) </label><input
-        type="text" id="ARRIVAL_RATE_INTENSITY_LAMBDA" value="2"></p>
-<p><label style="width: 300px; display:inline-block">Service worker count (k)</label><input type="text"
-                                                                                            id="SERVICE_LANE_COUNT_K"
-                                                                                            value="7"></p>
+
+<div class="slidecontainer">
+    <p><label style="width: 350px; display:inline-block">Average service time (seconds) (W):  <span id="AVERAGE_SERVICE_TIME_W"></span>&nbsp;&nbsp;</label><input type="range" min="1" max="5" value="2" class="slider" id="AVERAGE_SERVICE_TIME_W_SLIDER"></p>
+    <p><label style="width: 350px; display:inline-block">Arrival rate intensity (customers/second) (λ):  <span id="ARRIVAL_RATE_INTENSITY_LAMBDA"></span>&nbsp;&nbsp;</label><input type="range" min="1" max="10" value="2" class="slider" id="ARRIVAL_RATE_INTENSITY_LAMBDA_SLIDER"></p>
+    <p><label style="width: 350px; display:inline-block">Service worker count (k):  <span id="SERVICE_LANE_COUNT_K"></span>&nbsp;&nbsp;</label><input type="range" min="1" max="7" value="5" class="slider" id="SERVICE_LANE_COUNT_K_SLIDER"></p>
+</div>
+
+<div id="warning" style="color: red">
+</div>
+<br>
+
+
+
 <button onclick="simulation.startSimulation()">Restart simulation</button>
 <button onclick="simulation.resetStats()">Reset stats</button>
-<button onclick="simulation.updateSimulationParams()">Update parameters</button>
 
 <hr></hr>
-
 
 <div style="font-style: italic">
     This simulation uses the queue model M/M/k, see: https://en.wikipedia.org/wiki/M/M/c_queue. In short, this model consists of 2 parts:
@@ -55,14 +57,12 @@
     <br>
 </div>
 
-
-<br>
-<p id="summary"></p>
-<br>
 <script>
     //This demo is not meant to be a reliable simulation (we use javascripts unreliable timers) ... just a proof of concept
     //TODO scrollbars
-    //TODO clearStats
+    //TODO draw server_1, server_2 ... inactive_server_k, ...
+    //TODO make prettier balls
+    //TODO make prettier queue area
 
     var simulation = new function () {
         const CANVAS_WIDTH = 800;
@@ -72,8 +72,8 @@
         const SERVICE_START_X = 400;
 
         const BALL_SIZE = 10;
-        const BALL_MOVEMENT_PIXEL_COUNT_PER_UPDATE = 5;
-        const BALL_UPDATE_FREQUENCY_MS = 20;
+        const BALL_MOVEMENT_PIXEL_COUNT_PER_UPDATE = 4;
+        const BALL_UPDATE_FREQUENCY_MS = 25;
         const BALL_SPEED_PIXEL_PER_SECOND = BALL_UPDATE_FREQUENCY_MS * BALL_MOVEMENT_PIXEL_COUNT_PER_UPDATE;
         const BALL_INITIAL_Y_COORD = CANVAS_HEIGHT - 50;
         const BALL_FINAL_X_COORD = SERVICE_START_X + 10;
@@ -124,12 +124,18 @@
 
         }
 
-        function updateCanvas() {
+        function renderEmptyAreas() {
             context.fillStyle = "lightgreen";
-            context.fillRect(0, canvas.height - 68, canvas.width - 45, 38);
+            context.fillRect(0, canvas.height - 68, SERVICE_START_X, 38);
 
-            context.fillStyle = "yellow";
-            context.fillRect(SERVICE_START_X + 1, 0, 369, canvas.height - 30);
+            context.fillStyle = "lightgray";
+            context.fillRect(SERVICE_START_X + 1, 0, canvas.width-SERVICE_START_X-31, canvas.height - 30);
+
+            [...Array(self.SERVICE_LANE_COUNT_K).keys()].forEach(i => {
+                context.fillStyle = "yellow";
+                //context.fillRect(SERVICE_START_X + 1, 0, canvas.width-SERVICE_START_X-31, canvas.height - 30);
+                context.fillRect(SERVICE_START_X + 1+i*50, 0, 45, canvas.height - 30);
+            });
 
             context.fillStyle = "orange";
             context.fillRect(SERVICE_START_X - 10, canvas.height - 68, 20, 38);
@@ -182,7 +188,7 @@
 
         function updateDisplayStats() {
             context.fillStyle = "white";
-            context.fillRect(100, 80, 270, 100);
+            context.fillRect(10, 80, 280, 100);
             if (self.doCalculateAverageBallCountStats) {
                 var avgQueueWaitTimeMs = Math.round(self.queueWaitTimeStats.reduce((a, b) => a + b, 0) / self.queueWaitTimeStats.length * 100) / 100
                 var actualAvgServiceTime=Math.round(self.serviceTimesMsStats.reduce((a, b) => a + b, 0) / self.serviceTimesMsStats.length * 100) / 100;
@@ -203,10 +209,10 @@
                     AverageServiceTime=${actualAvgServiceTime}`
 
                 context.fillStyle = "blue";
-                context.fillText(`average server occupancy = ${Math.round((simulation.serviceAreaCountStats.reduce((a, b) => a + b, 0) / (simulation.serviceAreaCountStats.length*self.SERVICE_LANE_COUNT_K)) * 100)} %`, 100, 100);
-                context.fillText(`average queue wait time = ${Math.round(100*avgQueueWaitTimeMs/1000)/100} seconds`, 100, 130);
+                context.fillText(`average server occupancy = ${Math.round((simulation.serviceAreaCountStats.reduce((a, b) => a + b, 0) / (simulation.serviceAreaCountStats.length*self.SERVICE_LANE_COUNT_K)) * 100)} %`, 10, 100);
+                context.fillText(`average queue wait time = ${Math.round(100*avgQueueWaitTimeMs/1000)/100} seconds`, 10, 130);
 
-                context.fillText(`M/M/${self.SERVICE_LANE_COUNT_K} queue with λ=${self.ARRIVAL_RATE_INTENSITY_LAMBDA} customer/s and W=${self.AVERAGE_SERVICE_TIME_W} s`, 100, 160);
+                context.fillText(`M/M/${self.SERVICE_LANE_COUNT_K} queue with λ=${self.ARRIVAL_RATE_INTENSITY_LAMBDA} customer/s and W=${self.AVERAGE_SERVICE_TIME_W} s`, 10, 160);
 
                 context.stroke();
             }
@@ -215,12 +221,12 @@
 
         function animateBallMovements() {
             var currentAnimateEpochMs = (new Date()).getTime();
-            updateCanvas();
+            renderEmptyAreas();
 
             var ballCountInService = 0;
             var ballCountWaiting = 0;
 
-            // move the self.balls
+            // move and update the balls
             self.balls.forEach(ball => {
                 var bx, by;
                 var totalMovementTimeMs=0;
@@ -275,14 +281,14 @@
 
             }
 
-            //remove finished self.balls
+            //remove balls having exited the system
             self.balls = self.balls.filter(function (ball) {
                 return ball.position <= ball.exitPosition
             });
 
 
             var ballCountInArrivalArea = self.balls.length - ballCountInService;
-            //update display count per area
+            //update display for current count per area
 
             if (self.doCalculateAverageBallCountStats) {
                 self.arrivalAreaCountStats.push(ballCountInArrivalArea);
@@ -294,13 +300,6 @@
             document.getElementById("QUEUE_AREA_DATA").innerHTML = `Current customer count: ${ballCountWaiting}`;
             document.getElementById("SERVICE_AREA_DATA").innerHTML = `Current customer count: ${ballCountInService - ballCountWaiting}`;
 
-
-        }
-
-        //setup simulation:
-        this.init = function () {
-            initCanvas();
-            //();
         }
 
         this.resetStats = function () {
@@ -312,9 +311,9 @@
         }
 
         this.updateSimulationParams = function () {
-            self.AVERAGE_SERVICE_TIME_W = parseInt(document.getElementById("AVERAGE_SERVICE_TIME_W").value)
-            self.ARRIVAL_RATE_INTENSITY_LAMBDA = parseInt(document.getElementById("ARRIVAL_RATE_INTENSITY_LAMBDA").value);
-            self.SERVICE_LANE_COUNT_K = parseInt(document.getElementById("SERVICE_LANE_COUNT_K").value);
+            self.AVERAGE_SERVICE_TIME_W = parseInt(document.getElementById("AVERAGE_SERVICE_TIME_W_SLIDER").value)
+            self.ARRIVAL_RATE_INTENSITY_LAMBDA = parseInt(document.getElementById("ARRIVAL_RATE_INTENSITY_LAMBDA_SLIDER").value);
+            self.SERVICE_LANE_COUNT_K = parseInt(document.getElementById("SERVICE_LANE_COUNT_K_SLIDER").value);
         }
 
 
@@ -345,21 +344,58 @@
             ];
             self.timeouts = [
                 setTimeout(function () {
-                    self.arrivalAreaCountStats = [];
-                    self.queueAreaCountStats = [];
-                    self.serviceAreaCountStats = [];
-                    self.queueWaitTimeStats = [];
-                    self.serviceTimesMsStats = [];
+                    self.resetStats();
                     self.doCalculateAverageBallCountStats = true;
                 }, 10000)
             ]
 
         }
 
+
+        this.init = function () {
+
+            ["AVERAGE_SERVICE_TIME_W", "ARRIVAL_RATE_INTENSITY_LAMBDA", "SERVICE_LANE_COUNT_K" ].forEach(i => {
+                var slider = document.getElementById(i+"_SLIDER");
+                var output = document.getElementById(i);
+                output.innerHTML = slider.value;
+                slider.oninput = function() {
+                    output.innerHTML = this.value;
+                    self.updateSimulationParams();
+                    if (self.ARRIVAL_RATE_INTENSITY_LAMBDA*self.AVERAGE_SERVICE_TIME_W>self.SERVICE_LANE_COUNT_K) {
+                        document.getElementById("warning").innerHTML="WARNING: Arrival rate intensity is too high, queue length will grow indefinitely!"
+                    } else {
+                        document.getElementById("warning").innerHTML="";
+                    }
+                }
+            });
+
+            initCanvas();
+        }
+
     }
 
-    simulation.init();
-    simulation.startSimulation();
+    function ready(callbackFunc) {
+        if (document.readyState !== 'loading') {
+            // Document is already ready, call the callback directly
+            callbackFunc();
+        } else if (document.addEventListener) {
+            // All modern browsers to register DOMContentLoaded
+            document.addEventListener('DOMContentLoaded', callbackFunc);
+        } else {
+            // Old IE browsers
+            document.attachEvent('onreadystatechange', function() {
+                if (document.readyState === 'complete') {
+                    callbackFunc();
+                }
+            });
+        }
+    }
+
+    ready(function() {
+        simulation.init();
+        simulation.startSimulation();
+    });
+
 
 
 </script>
